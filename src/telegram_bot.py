@@ -345,8 +345,36 @@ def _handle_reply(msg: dict) -> None:
         )
 
 
+def dispatch_update(upd: dict) -> bool:
+    """Route a single Telegram update through the right handler.
+
+    Used by both the webhook (via process_update.py) and the legacy
+    getUpdates loop (process_updates, below). Returns True if handled.
+    """
+    try:
+        if "callback_query" in upd:
+            _handle_callback(upd["callback_query"])
+            return True
+        if "message" in upd:
+            msg = upd["message"]
+            cmd = _command_text(msg)
+            if cmd:
+                _handle_command(msg, cmd)
+                return True
+            if msg.get("reply_to_message"):
+                _handle_reply(msg)
+                return True
+    except Exception as e:
+        log.exception("Update handler failed: %s", e)
+    return False
+
+
 def process_updates() -> int:
-    """Poll Telegram for any new events and handle them. Returns count processed."""
+    """Poll Telegram for any new events and handle them. Returns count processed.
+
+    Used by the hourly cron as a safety net. If a webhook is configured,
+    Telegram returns 409 — we log once and skip.
+    """
     offset = db.get_telegram_offset()
     try:
         data = _api(
@@ -355,7 +383,11 @@ def process_updates() -> int:
             timeout=15,
         )
     except Exception as e:
-        log.exception("getUpdates failed: %s", e)
+        msg = str(e)
+        if "409" in msg or "webhook is active" in msg.lower() or "Conflict" in msg:
+            log.info("getUpdates skipped — webhook is active")
+        else:
+            log.exception("getUpdates failed: %s", e)
         return 0
 
     updates = data.get("result", [])
@@ -363,21 +395,8 @@ def process_updates() -> int:
     max_id = offset
     for upd in updates:
         max_id = max(max_id, upd["update_id"])
-        try:
-            if "callback_query" in upd:
-                _handle_callback(upd["callback_query"])
-                count += 1
-            elif "message" in upd:
-                msg = upd["message"]
-                cmd = _command_text(msg)
-                if cmd:
-                    _handle_command(msg, cmd)
-                    count += 1
-                elif msg.get("reply_to_message"):
-                    _handle_reply(msg)
-                    count += 1
-        except Exception as e:
-            log.exception("Update handler failed: %s", e)
+        if dispatch_update(upd):
+            count += 1
 
     if max_id != offset:
         db.set_telegram_offset(max_id)
