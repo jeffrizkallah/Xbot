@@ -1,0 +1,51 @@
+generation:
+  model: claude-opus-4-7
+  drafts_per_run: 10
+  max_tweet_chars: 275
+
+niches:
+  politics:
+    drafts: 5
+    rss:
+      - https://feeds.reuters.com/reuters/politicsNews
+      - https://feeds.apnews.com/rss/apf-politics
+      - https://www.politico.com/rss/politicopicks.xml
+      - https://thehill.com/homenews/feed/
+      - https://feeds.washingtonpost.com/rss/politics
+    google_news_queries:
+      - "US politics"
+      - "White House"
+      - "Congress"
+    x_search_terms: []
+
+  trading:
+    drafts: 5
+    rss:
+      - https://www.cnbc.com/id/10000664/device/rss/rss.html
+      - https://feeds.marketwatch.com/marketwatch/topstories/
+      - https://feeds.bloomberg.com/markets/news.rss
+      - https://seekingalpha.com/market_currents.xml
+    google_news_queries:
+      - "stock market"
+      - "S&P 500"
+      - "Federal Reserve"
+      - "earnings report"
+    x_search_terms:
+      - "$SPY OR $QQQ OR $NVDA lang:en -is:retweet"
+
+ranking:
+  # hours after which an article gets zero recency score
+  recency_half_life_hours: 12
+  max_age_hours: 36
+  # minimum number of candidates per niche before generation
+  min_candidates: 15
+
+telegram:
+  # minutes after draft before auto-reject (prevents stale tweets)
+  approval_ttl_minutes: 720
+
+posting:
+  # max tweets per day across all niches
+  daily_cap: 10
+  # minimum spacing between posts in minutes
+  min_spacing_minutes: 30
