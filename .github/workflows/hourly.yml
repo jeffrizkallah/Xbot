@@ -1,8 +1,9 @@
-name: Hourly approval + post
+name: Periodic approval + post
 
 on:
   schedule:
-    - cron: "5 * * * *"
+    # Every 15 minutes. Cuts approval-to-post latency to ≤15 min.
+    - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
 permissions:
