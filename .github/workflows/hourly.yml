@@ -41,12 +41,18 @@ jobs:
 
       - name: Commit updated state
         run: |
+          set -e
           git config user.name  "twitter-agent-bot"
           git config user.email "twitter-agent-bot@users.noreply.github.com"
           git add state/
           if git diff --cached --quiet; then
             echo "No state changes to commit"
-          else
-            git commit -m "state: hourly run $(date -u +%FT%TZ)"
-            git push
+            exit 0
           fi
+          git commit -m "state: hourly run $(date -u +%FT%TZ)"
+          for i in 1 2 3 4 5; do
+            if git push; then exit 0; fi
+            echo "Push rejected — rebasing and retrying ($i/5)..."
+            git pull --rebase origin main || { git rebase --abort || true; sleep 2; }
+          done
+          echo "Push still failing after retries" && exit 1
