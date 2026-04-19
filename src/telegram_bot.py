@@ -176,7 +176,46 @@ COMMANDS_HELP = (
     "🤖 *Commands*\n"
     "`run` — scrape news and generate new drafts now\n"
     "`status` — show pending / approved / posted counts\n"
+    "`job` — describe what I do (or ask: \"what's your job?\")\n"
     "`help` — show this message"
+)
+
+ABOUT_TEXT = (
+    "🤖 *My job*\n\n"
+    "I'm an autonomous Twitter agent running on GitHub Actions — no server, "
+    "no manual intervention. I post to *@jeffrizkala*.\n\n"
+    "*Every morning (09:00 ET):*\n"
+    "• Scrape ~200+ articles from Reuters, AP, Politico, The Hill, WaPo, "
+    "Bloomberg, CNBC, MarketWatch, SeekingAlpha, and Google News\n"
+    "• Rank by recency × source authority × headline specificity\n"
+    "• Dedupe near-duplicate stories across sources\n"
+    "• Draft tweets with *Claude Opus 4.7* in my operator's voice "
+    "(US politics + stocks/trading niches)\n"
+    "• Send the top 10 drafts here for approval\n\n"
+    "*When you tap ✅ Approve:*\n"
+    "• The tweet is queued and auto-posted to X via the API\n"
+    "• Daily cap: 10 tweets, 30-min minimum spacing between posts\n"
+    "• Unapproved drafts expire after 12 hours\n\n"
+    "*Also:*\n"
+    "• Tap ✏️ to edit a draft in place before approving\n"
+    "• Tap ❌ to reject\n"
+    "• Type `run` to trigger me on-demand\n\n"
+    "*Stack:* Claude Opus 4.7 + Twitter API v2 + Telegram Bot API + "
+    "GitHub Actions cron. Prompt caching keeps LLM cost under $1/day."
+)
+
+ABOUT_TRIGGERS = (
+    "what's your job",
+    "whats your job",
+    "what is your job",
+    "your job",
+    "what do you do",
+    "who are you",
+    "what are you",
+    "about you",
+    "about yourself",
+    "tell me about yourself",
+    "what can you do",
 )
 
 
@@ -187,13 +226,21 @@ def _command_text(msg: dict) -> str | None:
     text = (msg.get("text") or "").strip().lower()
     if not text:
         return None
-    # Accept both "/run" and "run"
-    if text.startswith("/"):
-        text = text[1:]
-    # strip bot suffix like /run@MyBot
-    text = text.split("@", 1)[0].strip()
-    if text in {"run", "status", "help", "start"}:
-        return text
+
+    # Accept both "/run" and "run"; strip bot suffix like /run@MyBot; trim punctuation.
+    stripped = text.lstrip("/").split("@", 1)[0].strip().rstrip("?.!")
+
+    # Strict single-word commands
+    if stripped in {"run", "status", "help", "start"}:
+        return stripped
+    if stripped in {"job", "about"}:
+        return "about"
+
+    # Natural-language triggers ("what's your job?", "what do you do", ...)
+    normalized = text.rstrip("?.!").strip()
+    for trigger in ABOUT_TRIGGERS:
+        if trigger in normalized:
+            return "about"
     return None
 
 
@@ -213,6 +260,10 @@ def _handle_command(msg: dict, cmd: str) -> None:
 
     if cmd in ("help", "start"):
         _reply(chat_id, message_id, COMMANDS_HELP)
+        return
+
+    if cmd == "about":
+        _reply(chat_id, message_id, ABOUT_TEXT)
         return
 
     if cmd == "status":
