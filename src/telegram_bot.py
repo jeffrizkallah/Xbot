@@ -20,6 +20,7 @@ import requests
 
 from . import db
 from .config import env, load_config
+from .github_dispatch import trigger_workflow
 
 log = logging.getLogger(__name__)
 
@@ -171,6 +172,79 @@ def _handle_callback(cb: dict) -> None:
         _answer_callback(cb_id, "Unknown action")
 
 
+COMMANDS_HELP = (
+    "🤖 *Commands*\n"
+    "`run` — scrape news and generate new drafts now\n"
+    "`status` — show pending / approved / posted counts\n"
+    "`help` — show this message"
+)
+
+
+def _command_text(msg: dict) -> str | None:
+    """Return a lowercased command keyword if the message is a top-level command."""
+    if msg.get("reply_to_message"):
+        return None
+    text = (msg.get("text") or "").strip().lower()
+    if not text:
+        return None
+    # Accept both "/run" and "run"
+    if text.startswith("/"):
+        text = text[1:]
+    # strip bot suffix like /run@MyBot
+    text = text.split("@", 1)[0].strip()
+    if text in {"run", "status", "help", "start"}:
+        return text
+    return None
+
+
+def _is_authorized(msg: dict) -> bool:
+    """Only the owner (TELEGRAM_CHAT_ID) can issue commands."""
+    chat = msg.get("chat") or {}
+    return str(chat.get("id")) == str(_chat_id())
+
+
+def _handle_command(msg: dict, cmd: str) -> None:
+    chat_id = msg["chat"]["id"]
+    message_id = msg["message_id"]
+
+    if not _is_authorized(msg):
+        _reply(chat_id, message_id, "⛔ Unauthorized.")
+        return
+
+    if cmd in ("help", "start"):
+        _reply(chat_id, message_id, COMMANDS_HELP)
+        return
+
+    if cmd == "status":
+        pending = len(db.drafts_by_status(db.STATUS_PENDING))
+        approved = len(db.drafts_by_status(db.STATUS_APPROVED))
+        posted_today = db.posts_today_count()
+        text = (
+            "📊 *Status*\n"
+            f"Pending approval: *{pending}*\n"
+            f"Approved (queued): *{approved}*\n"
+            f"Posted today: *{posted_today}*"
+        )
+        _reply(chat_id, message_id, text)
+        return
+
+    if cmd == "run":
+        ok = trigger_workflow("morning.yml")
+        if ok:
+            _reply(
+                chat_id,
+                message_id,
+                "🚀 Morning workflow dispatched. New drafts should arrive in ~1–2 min.",
+            )
+        else:
+            _reply(
+                chat_id,
+                message_id,
+                "❌ Failed to dispatch workflow. Check GH_REPO / GH_WORKFLOW_TOKEN secrets.",
+            )
+        return
+
+
 def _handle_reply(msg: dict) -> None:
     reply_to = msg.get("reply_to_message") or {}
     reply_to_id = reply_to.get("message_id")
@@ -242,9 +316,15 @@ def process_updates() -> int:
             if "callback_query" in upd:
                 _handle_callback(upd["callback_query"])
                 count += 1
-            elif "message" in upd and (upd["message"].get("reply_to_message")):
-                _handle_reply(upd["message"])
-                count += 1
+            elif "message" in upd:
+                msg = upd["message"]
+                cmd = _command_text(msg)
+                if cmd:
+                    _handle_command(msg, cmd)
+                    count += 1
+                elif msg.get("reply_to_message"):
+                    _handle_reply(msg)
+                    count += 1
         except Exception as e:
             log.exception("Update handler failed: %s", e)
 
